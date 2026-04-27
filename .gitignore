@@ -75,6 +75,10 @@ build/Release
 node_modules/
 jspm_packages/
 
+PANDUAN.md
+.agent
+
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
