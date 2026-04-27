@@ -1,0 +1,12 @@
+vm:
+  ip: 192.168.146.140
+  docker_port: 2375
+  user: ardyatamaf
+shared:
+  windows_path: E:\Internship\projects\VMDock
+  vm_mount: /mnt/shared/VMDock
+  docker_volume: /app
+services:
+  hello_world:
+    image: hello-world
+    ports: []
