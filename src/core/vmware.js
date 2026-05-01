@@ -64,6 +64,46 @@ export async function findVmxByIp(targetIp) {
 }
 
 /**
+ * Starts a VM if it is not already running
+ * @param {string} vmxPath 
+ */
+export async function startVM(vmxPath) {
+  const vmrun = findVmrun();
+  if (!vmrun) throw new Error('vmrun.exe not found');
+
+  try {
+    // Check if running
+    const { stdout: listOutput } = await execAsync(`"${vmrun}" list`);
+    if (listOutput.includes(vmxPath)) {
+      return true;
+    }
+
+    // Start VM
+    await execAsync(`"${vmrun}" -T ws start "${vmxPath}" nogui`);
+    return true;
+  } catch (e) {
+    throw new Error(`Failed to start VM: ${e.message}`);
+  }
+}
+
+/**
+ * Gets the IP address of a VM from its VMX path
+ * @param {string} vmxPath 
+ * @returns {Promise<string|null>}
+ */
+export async function getVmIp(vmxPath) {
+  const vmrun = findVmrun();
+  if (!vmrun) return null;
+
+  try {
+    const { stdout } = await execAsync(`"${vmrun}" getGuestIPAddress "${vmxPath}"`, { timeout: 10000 });
+    return stdout.trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * Automatically enables a shared folder for a VM
  * @param {string} vmxPath 
  * @param {string} shareName 

@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import yaml from 'js-yaml';
 import { connectToVM, installDockerIfNeeded, configureDockerTCP } from '../core/ssh.js';
+import { findVmxByIp } from '../core/vmware.js';
 
 // Utility to prompt user for input
 const prompt = (query) => {
@@ -26,6 +27,15 @@ export default async function initCommand() {
   const vmIp = await prompt(chalk.yellow('Enter VM IP Address: '));
   if (!vmIp) {
     console.error(chalk.red('IP Address is required.'));
+    process.exit(1);
+  }
+
+  // Auto-detect VMX path
+  let vmxPath = await findVmxByIp(vmIp);
+  vmxPath = await prompt(chalk.yellow(`Enter .vmx path [${vmxPath || 'path/to/vm.vmx'}]: `)) || vmxPath;
+
+  if (!vmxPath) {
+    console.error(chalk.red('.vmx path is required for advanced features.'));
     process.exit(1);
   }
 
@@ -98,6 +108,7 @@ export default async function initCommand() {
   const configData = {
     vm: {
       ip: vmIp,
+      path: vmxPath,
       docker_port: dockerPort,
       user: sshUser
     },

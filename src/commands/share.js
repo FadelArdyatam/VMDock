@@ -129,6 +129,16 @@ export default async function shareCommand() {
     }
   } catch (err) {
     mountSpinner.fail(`Failed to check mount status: ${err.message}`);
+    
+    // Check if vmhgfs-fuse is even installed
+    try {
+      const checkTools = await runCommand(ssh, 'command -v vmhgfs-fuse');
+      if (!checkTools.stdout.trim()) {
+        console.log(chalk.red('\n✗ VMware Tools (vmhgfs-fuse) not found on VM.'));
+        console.log(chalk.yellow('Please install open-vm-tools on your Linux VM:'));
+        console.log(chalk.cyan('  sudo apt update && sudo apt install open-vm-tools-desktop -y'));
+      }
+    } catch (e) {}
   }
 
   ssh.dispose();

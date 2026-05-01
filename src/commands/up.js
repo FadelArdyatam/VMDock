@@ -2,12 +2,16 @@ import { execSync } from 'child_process';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig } from '../config/loader.js';
+import { ensureVmReady } from '../core/vm-manager.js';
+import { setupPortProxy } from '../core/proxy.js';
+import { warnIfNotAdmin } from '../utils/check-env.js';
 
 export default async function upCommand() {
-  const { config } = loadConfig();
+  warnIfNotAdmin();
+  const { config, ip } = await ensureVmReady();
 
   // Set DOCKER_HOST for the current process so execSync uses it
-  const dockerHost = `tcp://${config.vm.ip}:${config.vm.docker_port}`;
+  const dockerHost = `tcp://${ip}:${config.vm.docker_port}`;
   process.env.DOCKER_HOST = dockerHost;
 
   console.log(chalk.cyan(`\n🚀 Starting VMDock services via ${dockerHost}...\n`));
@@ -78,6 +82,14 @@ export default async function upCommand() {
       // Execute run command
       execSync(runCmd, { stdio: 'ignore' });
       
+      // Setup port proxies
+      if (service.ports && Array.isArray(service.ports)) {
+        service.ports.forEach(portPair => {
+          const hostPort = portPair.split(':')[0];
+          setupPortProxy(ip, hostPort);
+        });
+      }
+
       spinner.succeed(chalk.green(`✓ ${name} started successfully`));
       runningCount++;
     } catch (error) {

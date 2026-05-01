@@ -3,11 +3,13 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig } from '../config/loader.js';
 
+import { ensureVmReady } from '../core/vm-manager.js';
+
 export default async function downCommand() {
-  const { config } = loadConfig();
+  const { config, ip } = await ensureVmReady();
 
   // Set DOCKER_HOST for the current process
-  const dockerHost = `tcp://${config.vm.ip}:${config.vm.docker_port}`;
+  const dockerHost = `tcp://${ip}:${config.vm.docker_port}`;
   process.env.DOCKER_HOST = dockerHost;
 
   console.log(chalk.cyan(`\n🛑 Stopping VMDock services...\n`));

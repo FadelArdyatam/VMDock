@@ -10,8 +10,13 @@ import execCommand from '../src/commands/exec.js';
 import logsCommand from '../src/commands/logs.js';
 import shareCommand from '../src/commands/share.js';
 import { showBanner } from '../src/utils/ui.js';
+import { checkDockerCli } from '../src/utils/check-env.js';
 
 showBanner();
+
+if (!checkDockerCli()) {
+  process.exit(1);
+}
 
 const program = new Command();
 
@@ -46,14 +51,17 @@ program
   .action(statusCommand);
 
 program
-  .command('exec <service>')
+  .command('exec')
   .description('Shell into a container')
-  .action(execCommand);
+  .argument('<service>', 'Name of the service')
+  .argument('[command...]', 'Command to run', ['sh'])
+  .action((service, command) => execCommand([service, ...command]));
 
 program
-  .command('logs <service>')
+  .command('logs')
   .description('View container logs')
-  .action(logsCommand);
+  .argument('<service>', 'Name of the service')
+  .action((service) => logsCommand([service]));
 
 program
   .command('share')

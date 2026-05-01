@@ -15,10 +15,29 @@ export async function connectToVM(vmConfig) {
       username: vmConfig.user,
       password: vmConfig.password,
       privateKeyPath: vmConfig.keyPath,
+      readyTimeout: 10000,
     });
     return ssh;
   } catch (error) {
-    // We throw the error so the caller can decide whether to exit or handle it (e.g., status check vs init)
+    if (error.code === 'ECONNREFUSED' || error.message.includes('ECONNREFUSED')) {
+      console.log(chalk.red(`\n✗ Connection Refused to ${vmConfig.ip}:22`));
+      console.log(chalk.yellow('It seems the SSH server is not running or not installed on your VM.'));
+      console.log(chalk.white('\nPlease run these commands on your Linux VM terminal:'));
+      console.log(chalk.cyan('  sudo apt update && sudo apt install openssh-server -y'));
+      console.log(chalk.cyan('  sudo systemctl enable --now ssh'));
+      console.log(chalk.gray('\nAfter that, try running this command again.\n'));
+      process.exit(1);
+    }
+    
+    if (error.code === 'ETIMEDOUT' || error.message.includes('ETIMEDOUT')) {
+      console.log(chalk.red(`\n✗ Connection Timeout to ${vmConfig.ip}:22`));
+      console.log(chalk.yellow('The VM is not responding to SSH requests.'));
+      console.log(chalk.white('1. Ensure the VM is powered on.'));
+      console.log(chalk.white(`2. Verify the IP address ${chalk.cyan(vmConfig.ip)} is correct.`));
+      console.log(chalk.white('3. Check if a firewall is blocking port 22 on the VM.'));
+      process.exit(1);
+    }
+
     throw new Error(`Failed to connect to VM at ${vmConfig.ip}: ${error.message}`);
   }
 }

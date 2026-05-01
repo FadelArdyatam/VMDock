@@ -24,19 +24,22 @@ const checkPort = (host, port, timeout = 2000) => {
   });
 };
 
+import { ensureVmReady } from '../core/vm-manager.js';
+
 export default async function statusCommand() {
   console.log(chalk.cyan('\n🔍 Checking VMDock Status...\n'));
 
-  let config;
+  let config, ip;
   try {
-    const loaded = loadConfig();
-    config = loaded.config;
+    const ready = await ensureVmReady();
+    config = ready.config;
+    ip = ready.ip;
   } catch (e) {
-    console.log(chalk.red('✗ Configuration   — not found or invalid'));
+    console.log(chalk.red('✗ Configuration or VM — error during initialization'));
+    console.log(chalk.gray(`  ${e.message}`));
     return;
   }
 
-  const ip = config.vm.ip;
   const port = config.vm.docker_port;
 
   // 1. VM Connectivity (Ping)
