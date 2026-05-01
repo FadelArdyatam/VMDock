@@ -21,7 +21,7 @@ const prompt = (query) => {
 };
 
 export default async function initCommand() {
-  console.log(chalk.cyan.bold('\n🚀 VMDock Initialization\n'));
+  console.log(chalk.cyan.bold('\nVMDock Initialization\n'));
 
   // 1. & 2. Ask user for VM details
   const vmIp = await prompt(chalk.yellow('Enter VM IP Address: '));
@@ -70,7 +70,20 @@ export default async function initCommand() {
     sshSpinner.succeed('Connected to VM via SSH.');
   } catch (error) {
     sshSpinner.fail(error.message);
-    console.log(chalk.yellow('Please check if the VM is running and the credentials are correct.'));
+    
+    if (error.type === 'SSH_NOT_INSTALLED') {
+      console.log(chalk.yellow('\nIt seems the SSH server is not running or not installed on your VM.'));
+      console.log(chalk.white('Please run these commands on your Linux VM terminal:'));
+      console.log(chalk.cyan('  sudo apt update && sudo apt install openssh-server -y  # For Debian/Ubuntu/Kali'));
+      console.log(chalk.cyan('  sudo dnf install openssh-server -y                    # For Fedora/CentOS'));
+      console.log(chalk.cyan('  sudo systemctl enable --now ssh'));
+    } else if (error.type === 'SSH_AUTH_FAILED') {
+      console.log(chalk.yellow('\nThe password or SSH key provided is incorrect.'));
+      console.log(chalk.white('Please double-check your credentials and try again.'));
+    } else if (error.type === 'SSH_TIMEOUT') {
+      console.log(chalk.yellow('\nThe VM is not responding. Ensure it is powered on and the IP is correct.'));
+    }
+    
     process.exit(1);
   }
 
@@ -82,7 +95,7 @@ export default async function initCommand() {
   ssh.dispose();
 
   // 5. Ask user for path details
-  console.log(chalk.cyan('\n📁 Directory Configuration'));
+  console.log(chalk.cyan('\nDirectory Configuration'));
   const currentDir = process.cwd();
   const windowsPath = await prompt(chalk.yellow(`Enter Windows Project Path [${currentDir}]: `)) || currentDir;
   
@@ -150,7 +163,7 @@ export default async function initCommand() {
   }
 
   // 9. Summary
-  console.log(chalk.green.bold('\n✨ VMDock setup completed successfully!\n'));
+  console.log(chalk.green.bold('\nVMDock setup completed successfully!\n'));
   console.log(chalk.white('Next steps:'));
   console.log(`1. Review and edit ${chalk.yellow('vmdock.yml')} to configure your services (e.g., redis, postgres).`);
   console.log(`2. Ensure VMware Shared Folders is enabled for your VM and points to: ${chalk.cyan(windowsPath)}`);

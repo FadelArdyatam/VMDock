@@ -20,22 +20,21 @@ export async function connectToVM(vmConfig) {
     return ssh;
   } catch (error) {
     if (error.code === 'ECONNREFUSED' || error.message.includes('ECONNREFUSED')) {
-      console.log(chalk.red(`\n✗ Connection Refused to ${vmConfig.ip}:22`));
-      console.log(chalk.yellow('It seems the SSH server is not running or not installed on your VM.'));
-      console.log(chalk.white('\nPlease run these commands on your Linux VM terminal:'));
-      console.log(chalk.cyan('  sudo apt update && sudo apt install openssh-server -y'));
-      console.log(chalk.cyan('  sudo systemctl enable --now ssh'));
-      console.log(chalk.gray('\nAfter that, try running this command again.\n'));
-      process.exit(1);
+      const err = new Error(`Connection Refused to ${vmConfig.ip}:22`);
+      err.type = 'SSH_NOT_INSTALLED';
+      throw err;
     }
     
     if (error.code === 'ETIMEDOUT' || error.message.includes('ETIMEDOUT')) {
-      console.log(chalk.red(`\n✗ Connection Timeout to ${vmConfig.ip}:22`));
-      console.log(chalk.yellow('The VM is not responding to SSH requests.'));
-      console.log(chalk.white('1. Ensure the VM is powered on.'));
-      console.log(chalk.white(`2. Verify the IP address ${chalk.cyan(vmConfig.ip)} is correct.`));
-      console.log(chalk.white('3. Check if a firewall is blocking port 22 on the VM.'));
-      process.exit(1);
+      const err = new Error(`Connection Timeout to ${vmConfig.ip}:22`);
+      err.type = 'SSH_TIMEOUT';
+      throw err;
+    }
+
+    if (error.message.includes('authentication methods failed')) {
+      const err = new Error(`Authentication Failed for user "${vmConfig.user}"`);
+      err.type = 'SSH_AUTH_FAILED';
+      throw err;
     }
 
     throw new Error(`Failed to connect to VM at ${vmConfig.ip}: ${error.message}`);
@@ -106,6 +105,47 @@ export async function runSudoCommand(ssh, command, password) {
 }
 
 /**
+ * Detects the Linux distribution of the remote VM
+ * @param {NodeSSH} ssh 
+ * @returns {Promise<Object>} - { os: string, pkgManager: string, init: string }
+ */
+export async function detectOS(ssh) {
+  const osInfo = await runCommand(ssh, 'cat /etc/os-release');
+  const content = osInfo.stdout.toLowerCase();
+  
+  let info = {
+    os: 'unknown',
+    pkgManager: 'apt', // Default
+    init: 'systemd'    // Default
+  };
+
+  if (content.includes('ubuntu') || content.includes('debian') || content.includes('kali') || content.includes('mint')) {
+    info.os = 'debian';
+    info.pkgManager = 'apt';
+  } else if (content.includes('fedora') || content.includes('centos') || content.includes('rhel')) {
+    info.os = 'redhat';
+    info.pkgManager = 'dnf';
+  } else if (content.includes('alpine')) {
+    info.os = 'alpine';
+    info.pkgManager = 'apk';
+    info.init = 'openrc';
+  } else if (content.includes('arch')) {
+    info.os = 'arch';
+    info.pkgManager = 'pacman';
+  }
+
+  // Double check init system
+  const checkInit = await runCommand(ssh, 'ps -p 1 -o comm=');
+  if (checkInit.stdout.includes('systemd')) {
+    info.init = 'systemd';
+  } else if (checkInit.stdout.includes('init')) {
+    // Possibly OpenRC or SysV
+  }
+
+  return info;
+}
+
+/**
  * Checks if Docker is installed, and installs it if not
  * @param {NodeSSH} ssh - The connected SSH instance
  * @param {string} password - SSH/Sudo password
@@ -116,17 +156,24 @@ export async function installDockerIfNeeded(ssh, password) {
     return; // Docker is already installed
   }
 
-  const spinner = ora('Docker not found. Installing Docker Engine (this may take a while)...').start();
+  const osInfo = await detectOS(ssh);
+  const spinner = ora(`Docker not found. Installing Docker Engine for ${osInfo.os}...`).start();
+
   try {
-    // Basic install script for Docker
-    // Note: we run the whole script with sudo to ensure permissions
-    const installScript = `
-      curl -fsSL https://get.docker.com -o get-docker.sh &&
-      sh get-docker.sh &&
-      usermod -aG docker $USER &&
-      rm get-docker.sh
-    `;
-    const result = await runSudoCommand(ssh, installScript, password);
+    let installScript = '';
+    
+    if (osInfo.pkgManager === 'apt') {
+      installScript = 'curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh';
+    } else if (osInfo.pkgManager === 'dnf') {
+      installScript = 'dnf install -y docker-ce docker-ce-cli containerd.io && systemctl enable --now docker';
+    } else if (osInfo.pkgManager === 'apk') {
+      installScript = 'apk add docker && addgroup $USER docker && rc-update add docker default && service docker start';
+    } else if (osInfo.pkgManager === 'pacman') {
+      installScript = 'pacman -S docker --noconfirm && systemctl enable --now docker';
+    }
+
+    const fullScript = `${installScript} && usermod -aG docker $USER || true`;
+    const result = await runSudoCommand(ssh, fullScript, password);
     
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout);
@@ -147,27 +194,47 @@ export async function installDockerIfNeeded(ssh, password) {
  * @param {string} password - SSH/Sudo password
  */
 export async function configureDockerTCP(ssh, port, password) {
-  const spinner = ora(`Configuring Docker to expose TCP port ${port}...`).start();
+  const osInfo = await detectOS(ssh);
+  const spinner = ora(`Configuring Docker to expose TCP port ${port} (${osInfo.init})...`).start();
   
-  const daemonJsonConfig = {
-    hosts: ["unix:///var/run/docker.sock", `tcp://0.0.0.0:${port}`]
-  };
-  
-  const daemonJsonStr = JSON.stringify(daemonJsonConfig).replace(/"/g, '\\"');
-  
-  const setupCmd = `
-    mkdir -p /etc/docker &&
-    echo "${daemonJsonStr}" > /etc/docker/daemon.json &&
-    mkdir -p /etc/systemd/system/docker.service.d &&
-    printf "[Service]\nExecStart=\nExecStart=/usr/bin/dockerd" > /etc/systemd/system/docker.service.d/override.conf &&
-    systemctl daemon-reload &&
-    systemctl restart docker
-  `;
+  let setupCmd = '';
+
+  if (osInfo.init === 'systemd') {
+    setupCmd = `
+      DOCKERD_PATH=$(which dockerd)
+      mkdir -p /etc/docker
+      cat <<EOF > /etc/docker/daemon.json
+{
+  "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:${port}"]
+}
+EOF
+      mkdir -p /etc/systemd/system/docker.service.d
+      cat <<EOF > /etc/systemd/system/docker.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=$DOCKERD_PATH
+EOF
+      systemctl daemon-reload
+      systemctl restart docker
+    `;
+  } else if (osInfo.init === 'openrc') {
+    setupCmd = `
+      mkdir -p /etc/docker
+      cat <<EOF > /etc/docker/daemon.json
+{
+  "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:${port}"]
+}
+EOF
+      service docker restart
+    `;
+  }
 
   try {
     const result = await runSudoCommand(ssh, setupCmd, password);
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout);
+      // If it fails, let's try to get the reason
+      const status = await runCommand(ssh, 'systemctl status docker.service --no-pager');
+      throw new Error(`${result.stderr || result.stdout}\n\nDocker Status:\n${status.stdout}`);
     }
     spinner.succeed(`Docker TCP exposure configured on port ${port}.`);
   } catch (error) {

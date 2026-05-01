@@ -12,7 +12,7 @@ export default async function downCommand() {
   const dockerHost = `tcp://${ip}:${config.vm.docker_port}`;
   process.env.DOCKER_HOST = dockerHost;
 
-  console.log(chalk.cyan(`\n🛑 Stopping VMDock services...\n`));
+  console.log(chalk.cyan(`\nStopping VMDock services...\n`));
 
   const services = config.services || {};
   const serviceNames = Object.keys(services);
@@ -28,7 +28,7 @@ export default async function downCommand() {
     try {
       // Check if container exists
       const exists = execSync(`docker ps -a -q -f name=^vmdock-${name}$`).toString().trim();
-      
+
       if (!exists) {
         spinner.succeed(chalk.gray(`${name} is not running`));
         continue;
@@ -37,8 +37,8 @@ export default async function downCommand() {
       // Stop and remove
       execSync(`docker stop vmdock-${name}`, { stdio: 'ignore' });
       execSync(`docker rm vmdock-${name}`, { stdio: 'ignore' });
-      
-      spinner.succeed(chalk.green(`✓ ${name} stopped and removed`));
+
+      spinner.succeed(chalk.green(` ${name} stopped and removed`));
     } catch (error) {
       spinner.fail(chalk.red(`✗ Failed to stop ${name}`));
       console.error(chalk.gray(`  ${error.message}`));

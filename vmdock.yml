@@ -1,7 +1,9 @@
 vm:
-  ip: 192.168.146.140
+  ip: 192.168.146.142
+  path: >-
+    E:\kali-linux-2026.1-vmware-amd64\kali-linux-2026.1-vmware-amd64.vmwarevm\kali-linux-2026.1-vmware-amd64.vmx
   docker_port: 2375
-  user: ardyatamaf
+  user: kali
 shared:
   windows_path: E:\Internship\projects\VMDock
   vm_mount: /mnt/shared/VMDock
@@ -10,3 +12,7 @@ services:
   hello_world:
     image: hello-world
     ports: []
+  web:
+    image: nginx:latest
+    ports:
+      - "8080:80"

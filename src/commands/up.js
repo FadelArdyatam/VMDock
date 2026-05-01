@@ -1,20 +1,35 @@
-import { execSync } from 'child_process';
+import { exec as execAsyncCallback, spawn } from 'child_process';
+import { promisify } from 'util';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig } from '../config/loader.js';
 import { ensureVmReady } from '../core/vm-manager.js';
 import { setupPortProxy } from '../core/proxy.js';
-import { warnIfNotAdmin } from '../utils/check-env.js';
+import { warnIfNotAdmin, isAdmin } from '../utils/check-env.js';
+
+const exec = promisify(execAsyncCallback);
+
+/**
+ * Runs a command and streams its output to the terminal
+ */
+function runInteractive(command, args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args, { stdio: 'inherit', shell: true });
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Command failed with code ${code}`));
+    });
+  });
+}
 
 export default async function upCommand() {
   warnIfNotAdmin();
   const { config, ip } = await ensureVmReady();
 
-  // Set DOCKER_HOST for the current process so execSync uses it
   const dockerHost = `tcp://${ip}:${config.vm.docker_port}`;
   process.env.DOCKER_HOST = dockerHost;
 
-  console.log(chalk.cyan(`\n🚀 Starting VMDock services via ${dockerHost}...\n`));
+  console.log(chalk.cyan(`\nStarting VMDock services via ${dockerHost}...\n`));
 
   const services = config.services || {};
   const serviceNames = Object.keys(services);
@@ -29,84 +44,110 @@ export default async function upCommand() {
 
   for (const name of serviceNames) {
     const service = services[name];
-    const spinner = ora(`Starting ${name}...`).start();
+    const startTime = Date.now();
+
+    console.log(chalk.white.bold(`[${name}]`));
 
     try {
-      // Check if container is already running
-      const isRunning = execSync(`docker ps -q -f name=^vmdock-${name}$`).toString().trim();
-      
+      // 1. Check if container is already running
+      let isRunning = '';
+      try {
+        const { stdout } = await exec(`docker ps -q -f name=^vmdock-${name}$`);
+        isRunning = stdout.trim();
+      } catch (e) { }
+
       if (isRunning) {
-        spinner.succeed(chalk.green(`✓ ${name} is already running`));
+        console.log(chalk.green(` already running`));
         runningCount++;
-        if (service.ports) {
-          exposedPorts.push(...service.ports);
-        }
+        if (service.ports) exposedPorts.push(...service.ports);
+        console.log('');
         continue;
       }
 
-      // Check if container exists but is stopped
-      const exists = execSync(`docker ps -a -q -f name=^vmdock-${name}$`).toString().trim();
-      if (exists) {
-        execSync(`docker rm vmdock-${name}`);
+      // 2. Check if image exists, if not, pull with real logs
+      try {
+        await exec(`docker image inspect ${service.image}`);
+      } catch (e) {
+        console.log(chalk.gray(`  Pulling image ${service.image}...`));
+        await runInteractive('docker', ['pull', service.image]);
       }
 
-      // Build docker run command
-      let runCmd = `docker run -d --name vmdock-${name}`;
+      // 3. Check if container exists but is stopped
+      try {
+        const { stdout } = await exec(`docker ps -a -q -f name=^vmdock-${name}$`);
+        if (stdout.trim()) {
+          await exec(`docker rm vmdock-${name}`);
+        }
+      } catch (e) { }
 
-      // Add ports
-      if (service.ports && Array.isArray(service.ports)) {
+      // 4. Start container with spinner and timer
+      const spinner = ora(`Starting container...`).start();
+      const timer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        spinner.text = `Starting container (${elapsed}s)...`;
+      }, 1000);
+
+      // Build docker run command
+      let runArgs = ['run', '-d', '--name', `vmdock-${name}`];
+
+      if (service.ports) {
         service.ports.forEach(port => {
-          runCmd += ` -p ${port}`;
+          runArgs.push('-p', port);
           exposedPorts.push(port);
         });
       }
 
-      // Add environment variables
       if (service.environment) {
         for (const [key, value] of Object.entries(service.environment)) {
-          runCmd += ` -e ${key}="${value}"`;
+          runArgs.push('-e', `${key}=${value}`);
         }
       }
 
-      // Add volume if specified
       if (config.shared && config.shared.vm_mount && config.shared.docker_volume) {
-        runCmd += ` -v ${config.shared.vm_mount}:${config.shared.docker_volume}`;
+        runArgs.push('-v', `${config.shared.vm_mount}:${config.shared.docker_volume}`);
       }
 
-      // Add image
-      if (!service.image) {
-        throw new Error(`No image specified for service ${name}`);
-      }
-      runCmd += ` ${service.image}`;
+      runArgs.push(service.image);
 
-      // Execute run command
-      execSync(runCmd, { stdio: 'ignore' });
-      
+      // Execute run
+      await exec(`docker ${runArgs.join(' ')}`);
+
       // Setup port proxies
-      if (service.ports && Array.isArray(service.ports)) {
+      if (service.ports) {
         service.ports.forEach(portPair => {
           const hostPort = portPair.split(':')[0];
           setupPortProxy(ip, hostPort);
         });
       }
 
-      spinner.succeed(chalk.green(`✓ ${name} started successfully`));
+      clearInterval(timer);
+      const totalTime = Math.floor((Date.now() - startTime) / 1000);
+      spinner.succeed(chalk.green(`started successfully (${totalTime}s)`));
       runningCount++;
     } catch (error) {
-      spinner.fail(chalk.red(`✗ Failed to start ${name}`));
-      console.error(chalk.gray(`  ${error.message}`));
+      console.error(chalk.red(`  ✗ Failed to start ${name}`));
+      console.error(chalk.gray(`    ${error.message}`));
     }
+    console.log('');
   }
 
   // Summary
-  console.log(chalk.cyan('\n📊 Summary:'));
-  console.log(`Services running: ${chalk.green(runningCount)}/${serviceNames.length}`);
+  console.log(chalk.cyan('Summary:'));
+  console.log(`  Services running: ${chalk.green(runningCount)}/${serviceNames.length}`);
+
   if (exposedPorts.length > 0) {
-    console.log('Ports accessible from Windows:');
+    const isUserAdmin = isAdmin();
+    console.log(`  Ports accessible from Windows (${isUserAdmin ? 'via localhost' : 'via VM IP'}):`);
+
     exposedPorts.forEach(p => {
       const winPort = p.split(':')[0];
-      console.log(`  - ${chalk.yellow(`localhost:${winPort}`)}`);
+      const host = isUserAdmin ? 'localhost' : ip;
+      console.log(`    - ${chalk.yellow(`${host}:${winPort}`)}`);
     });
+
+    if (!isUserAdmin) {
+      console.log(chalk.gray('\n  Note: Run as Administrator to enable "localhost" access.'));
+    }
   }
   console.log('');
 }

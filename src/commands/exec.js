@@ -15,7 +15,7 @@ export default async function execCommand(args) {
     }
 
     const containerName = `vmdock-${serviceName}`;
-    console.log(chalk.cyan(`\n🐚 Connecting to ${containerName}...\n`));
+    console.log(chalk.cyan(`\nConnecting to ${containerName}...\n`));
 
     const dockerExec = spawn('docker', ['exec', '-it', containerName, ...command], {
       stdio: 'inherit',

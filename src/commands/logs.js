@@ -13,7 +13,7 @@ export default async function logsCommand(args) {
     }
 
     const containerName = `vmdock-${serviceName}`;
-    console.log(chalk.cyan(`\n📑 Showing logs for ${containerName} (Ctrl+C to stop)...\n`));
+    console.log(chalk.cyan(`\nShowing logs for ${containerName} (Ctrl+C to stop)...\n`));
 
     const dockerLogs = spawn('docker', ['logs', '-f', containerName], {
       stdio: 'inherit',

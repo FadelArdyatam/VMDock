@@ -27,7 +27,7 @@ const checkPort = (host, port, timeout = 2000) => {
 import { ensureVmReady } from '../core/vm-manager.js';
 
 export default async function statusCommand() {
-  console.log(chalk.cyan('\n🔍 Checking VMDock Status...\n'));
+  console.log(chalk.cyan('\nChecking VMDock Status...\n'));
 
   let config, ip;
   try {
@@ -47,7 +47,7 @@ export default async function statusCommand() {
   try {
     execSync(`ping -n 1 -w 1000 ${ip}`, { stdio: 'ignore' });
     vmReachable = true;
-    console.log(`  ${chalk.green('✓')} VM (${ip.padEnd(15)}) — reachable`);
+    console.log(`  ${chalk.green('')} VM (${ip.padEnd(15)}) — reachable`);
   } catch (e) {
     console.log(`  ${chalk.red('✗')} VM (${ip.padEnd(15)}) — unreachable`);
   }
@@ -55,7 +55,7 @@ export default async function statusCommand() {
   // 2. Docker Engine Connectivity
   const dockerEngineUp = await checkPort(ip, port);
   if (dockerEngineUp) {
-    console.log(`  ${chalk.green('✓')} Docker Engine (:${port})   — connected`);
+    console.log(`  ${chalk.green('')} Docker Engine (:${port})   — connected`);
   } else {
     console.log(`  ${chalk.red('✗')} Docker Engine (:${port})   — offline`);
   }
@@ -64,7 +64,7 @@ export default async function statusCommand() {
   const expectedDockerHost = `tcp://${ip}:${port}`;
   const actualDockerHost = process.env.DOCKER_HOST;
   if (actualDockerHost === expectedDockerHost) {
-    console.log(`  ${chalk.green('✓')} DOCKER_HOST               — set correctly`);
+    console.log(`  ${chalk.green('')} DOCKER_HOST               — set correctly`);
   } else {
     console.log(`  ${chalk.yellow('!')} DOCKER_HOST               — not set or incorrect (current: ${actualDockerHost || 'empty'})`);
   }
@@ -77,12 +77,12 @@ export default async function statusCommand() {
         ip: ip,
         user: config.vm.user,
       });
-      
+
       const vmMount = config.shared?.vm_mount;
       if (vmMount) {
         const result = await runCommand(ssh, `test -d ${vmMount} && echo "yes" || echo "no"`);
         if (result.stdout.trim() === 'yes') {
-          console.log(`  ${chalk.green('✓')} Shared folder (${vmMount}) — mounted`);
+          console.log(`  ${chalk.green('')} Shared folder (${vmMount}) — mounted`);
         } else {
           console.log(`  ${chalk.red('✗')} Shared folder (${vmMount}) — not found`);
         }
@@ -102,21 +102,21 @@ export default async function statusCommand() {
 
   if (serviceNames.length > 0 && dockerEngineUp) {
     process.env.DOCKER_HOST = expectedDockerHost;
-    
+
     for (const name of serviceNames) {
       try {
         const status = execSync(`docker ps -a --format "{{.Status}}" -f name=^vmdock-${name}$`).toString().trim();
-        
+
         let portDisplay = '';
         const service = services[name];
         if (service.ports && service.ports.length > 0) {
-           portDisplay = `:${service.ports[0].split(':')[0]}`;
+          portDisplay = `:${service.ports[0].split(':')[0]}`;
         }
-        
+
         const displayStr = `${name.padEnd(10)}${portDisplay.padEnd(6)}`;
 
         if (status.startsWith('Up')) {
-          console.log(`  ${chalk.green('✓')} ${displayStr}             — running`);
+          console.log(`  ${chalk.green('')} ${displayStr}             — running`);
         } else if (status.startsWith('Exited')) {
           console.log(`  ${chalk.red('✗')} ${displayStr}             — stopped`);
         } else {

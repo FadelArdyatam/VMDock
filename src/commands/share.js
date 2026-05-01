@@ -23,7 +23,7 @@ export default async function shareCommand() {
     return;
   }
 
-  console.log(chalk.cyan('\n🔍 Shared Folder Diagnosis\n'));
+  console.log(chalk.cyan('\nShared Folder Diagnosis\n'));
 
   // Ask for password since we don't store it
   const password = await prompt(chalk.yellow(`Enter SSH/Sudo Password for ${config.vm.user}: `));
@@ -38,8 +38,12 @@ export default async function shareCommand() {
     });
     connSpinner.succeed('Connected to VM via SSH.');
   } catch (error) {
-    connSpinner.fail('Connection failed.');
-    console.log(chalk.red(error.message));
+    connSpinner.fail(error.message);
+    if (error.type === 'SSH_AUTH_FAILED') {
+      console.log(chalk.red('Incorrect password. Please try again.'));
+    } else if (error.type === 'SSH_NOT_INSTALLED') {
+      console.log(chalk.yellow('SSH server not found on VM. Install it with: sudo apt install openssh-server'));
+    }
     return;
   }
 
@@ -92,7 +96,7 @@ export default async function shareCommand() {
   }
 
   // 2. Check mount status
-  console.log(chalk.cyan('\n🚀 VM Mount Status:'));
+  console.log(chalk.cyan('\nVM Mount Status:'));
   const mountSpinner = ora('Checking mount points in Linux...').start();
   try {
     const mountResult = await runCommand(ssh, 'mount | grep vmhgfs');
